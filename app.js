@@ -798,8 +798,9 @@ if (typeof document !== 'undefined') (function () {
           h('p', { class: 'caption' }, '保固待認定時不視為保固外。金額、收費時點與退款規則尚未訂定。'))),
       h('section', { class: 'block' }, h('h2', { class: 'list-header' }, '關於展示版本'),
         h('div', { class: 'block-body' },
-          h('p', { class: 'caption' }, '目前為第一版客戶介面的展示版本：品牌、型號、據點、窗口與金額皆為虛構；排查回覆為模擬內容；不登入、不付款、不寄送通知，也不保存資料。'),
-          btn('展示工具', openSheet, 'btn btn-outline btn-sm', 'tools-about')))];
+          h('p', { class: 'caption' }, '目前為第一版客戶介面的展示版本：品牌、型號、據點、窗口與金額皆為虛構；排查回覆為模擬內容；不讀取 LINE 個人資料、不付款、不寄送通知，也不保存資料。重新整理頁面會回到初始展示資料。'),
+          btn('展示工具', openSheet, 'btn btn-outline btn-sm', 'tools-about'),
+          h('a', { class: 'btn btn-ghost btn-sm', href: 'start.html', 'data-act': 'start-guide' }, '開始操作指引與 QR Code')))];
   }
 
   const VIEWS = { home: viewHome, lookup: viewLookup, triage: viewTriage, consent: viewConsent, submitted: viewSubmitted,

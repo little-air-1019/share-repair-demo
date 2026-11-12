@@ -393,3 +393,12 @@ b { font-weight: 600; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
 }
+
+/* LINE entry pages only (miniapp.html, developing.html): status gate until liff.init() resolves */
+.liff-gate { position: fixed; inset: 0; z-index: 40; display: grid; place-items: center; padding: 16px; background: var(--gray-150); }
+.liff-gate-box { width: 100%; max-width: 400px; padding: 24px 16px; border-radius: var(--r-sheet); background: var(--white); display: flex; flex-direction: column; gap: 12px; text-align: center; }
+.liff-gate-title { font-size: 18px; font-weight: 700; }
+.liff-gate-actions { display: flex; flex-direction: column; gap: 8px; }
+a.btn { text-decoration: none; }
+.liff-note { flex: none; padding: 8px 16px; font-size: 13px; color: var(--gray-650); background: var(--white); border-bottom: 1px solid var(--gray-250); }
+.liff-note a { margin-left: 4px; color: var(--blue); font-weight: 600; }

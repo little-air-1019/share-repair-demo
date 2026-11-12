@@ -1,7 +1,10 @@
 # 售後共享車 Share Repair
 
-[開啟第一版客戶介面](https://little-air-1019.github.io/share-repair-demo/)
+[開始操作與 QR Code](https://little-air-1019.github.io/share-repair-demo/start.html)
 
-依 LINE Design System 設計的 LINE MINI App 買家端展示版本，供團隊討論。所有案件、地址、金額與排查回覆均為示範內容，不登入、不收款、不保存輸入，也未串接 LIFF、AI、通知或物流。
+- LINE MINI App：https://miniapp.line.me/2012566276-GSc0s3dD
+- 網頁備援：https://little-air-1019.github.io/share-repair-demo/
 
-手機與桌面瀏覽器皆可開啟。「展示工具」可切換情境；重新整理會重設資料。
+LINE MINI App 第一版客戶介面，供團隊展示。案件、金額、據點與排查回覆均為示範，不會實際付款、寄件或通知。各裝置資料只存在記憶體，重新整理會重設。
+
+不需要先加入官方帳號。MINI App 入口需要服務方完成 LINE Console 設定；無法開啟時可直接使用網頁備援。
