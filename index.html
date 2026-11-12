@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>售後共享車 Share Repair</title>
-<meta name="description" content="售後共享車 Share Repair 第一版客戶介面（展示版本：案件、金額與排查回覆為示範內容）">
+<meta name="description" content="售後共享車 Share Repair 第一版客戶介面（互動情境展示：案件、金額與窗口回覆皆為情境資料）">
 <link rel="icon" href="data:,">
 <link rel="stylesheet" href="styles.css">
 </head>
@@ -34,25 +34,20 @@
     <symbol id="i-tools" viewBox="0 0 24 24"><path d="M4 7h10M18 7h2M4 17h2M10 17h10"/><circle cx="16" cy="7" r="2"/><circle cx="8" cy="17" r="2"/></symbol>
 
     <!-- Product illustrations (fictional products), flat gray with one green accent -->
-    <symbol id="ill-fan" viewBox="0 0 120 120">
-      <path d="M40 108h40a5 5 0 0 0-5-7H45a5 5 0 0 0-5 7z" fill="var(--ill-dark)"/>
-      <rect x="57" y="66" width="6" height="38" rx="3" fill="var(--ill-dark)"/>
-      <circle cx="60" cy="46" r="34" fill="var(--ill-soft)" stroke="var(--ill-dark)" stroke-width="2.5"/>
-      <circle cx="60" cy="46" r="24" fill="none" stroke="var(--ill-dark)" stroke-opacity=".15" stroke-width="1.5"/>
-      <g fill="var(--ill-accent)">
-        <path d="M60 46c-6-12-3-26 7-27 9 0 8 15-7 27z"/>
-        <path d="M60 46c-6-12-3-26 7-27 9 0 8 15-7 27z" transform="rotate(120 60 46)"/>
-        <path d="M60 46c-6-12-3-26 7-27 9 0 8 15-7 27z" transform="rotate(240 60 46)"/>
-      </g>
-      <circle cx="60" cy="46" r="5" fill="var(--ill-dark)"/>
+    <symbol id="ill-console" viewBox="0 0 120 120">
+      <rect x="14" y="36" width="92" height="50" rx="12" fill="var(--ill-soft)" stroke="var(--ill-dark)" stroke-width="2.5"/>
+      <rect x="38" y="44" width="44" height="34" rx="4" fill="var(--ill-dark)"/>
+      <rect x="42" y="48" width="36" height="26" rx="2" fill="var(--ill-accent)" fill-opacity=".85"/>
+      <path d="M24 61h8M28 57v8" stroke="var(--ill-dark)" stroke-width="3" stroke-linecap="round"/>
+      <circle cx="94" cy="55" r="3.5" fill="var(--ill-dark)"/>
+      <circle cx="88" cy="66" r="3.5" fill="var(--ill-dark)"/>
     </symbol>
-    <symbol id="ill-coffee" viewBox="0 0 120 120">
-      <rect x="30" y="14" width="60" height="18" rx="5" fill="var(--ill-dark)"/>
-      <rect x="34" y="30" width="52" height="76" rx="7" fill="var(--ill-soft)" stroke="var(--ill-dark)" stroke-width="2.5"/>
-      <rect x="45" y="42" width="30" height="7" rx="3.5" fill="var(--ill-dark)"/>
-      <rect x="55" y="49" width="10" height="9" rx="2" fill="var(--ill-dark)"/>
-      <path d="M47 74h26v15a8 8 0 0 1-8 8H55a8 8 0 0 1-8-8z" fill="var(--ill-accent)"/>
-      <path d="M73 78h4a5 5 0 0 1 0 10h-4" fill="none" stroke="var(--ill-accent)" stroke-width="2.5"/>
+    <symbol id="ill-dryer" viewBox="0 0 120 120">
+      <path d="M22 30h56a20 20 0 0 1 0 40H22z" fill="var(--ill-soft)" stroke="var(--ill-dark)" stroke-width="2.5" stroke-linejoin="round"/>
+      <rect x="10" y="36" width="14" height="28" rx="3" fill="var(--ill-dark)"/>
+      <circle cx="74" cy="50" r="10" fill="none" stroke="var(--ill-dark)" stroke-opacity=".3" stroke-width="3"/>
+      <path d="M58 70h18l-6 38a4 4 0 0 1-4 3h-4a4 4 0 0 1-4-3z" fill="var(--ill-accent)"/>
+      <path d="M100 42h10M100 50h14M100 58h10" stroke="var(--ill-dark)" stroke-opacity=".35" stroke-width="2.5" stroke-linecap="round"/>
     </symbol>
     <symbol id="ill-buds" viewBox="0 0 120 120">
       <rect x="27" y="58" width="66" height="46" rx="20" fill="var(--ill-soft)" stroke="var(--ill-dark)" stroke-width="2.5"/>
@@ -83,7 +78,7 @@
 <div class="app" id="app">
   <div class="preview-notice" role="note">
     <span class="preview-label">展示版本</span>
-    <span class="preview-text">內容與金額皆為示範</span>
+    <span class="preview-text">情境資料・示範金額</span>
     <button type="button" class="preview-btn" id="btn-tools" data-act="tools" aria-haspopup="dialog">展示工具</button>
   </div>
   <main id="screen" class="screen" tabindex="-1"></main>

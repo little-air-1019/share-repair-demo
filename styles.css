@@ -93,7 +93,7 @@ b { font-weight: 600; }
 .preview-label {
   flex: none; padding: 1px 6px; border-radius: var(--r-tag); background: var(--pend-bg); color: var(--pend-text); font-weight: 600; font-size: 12px;
 }
-.preview-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.preview-text { flex: 1; min-width: 0; overflow-wrap: anywhere; } /* wraps, never truncated */
 .preview-btn {
   flex: none; min-height: 44px; min-width: 44px; padding: 0 8px; border: 0; background: none; cursor: pointer;
   font-size: 13px; font-weight: 600; color: var(--gray-900); text-decoration: underline; text-underline-offset: 3px;
@@ -402,3 +402,9 @@ b { font-weight: 600; }
 a.btn { text-decoration: none; }
 .liff-note { flex: none; padding: 8px 16px; font-size: 13px; color: var(--gray-650); background: var(--white); border-bottom: 1px solid var(--gray-250); }
 .liff-note a { margin-left: 4px; color: var(--blue); font-weight: 600; }
+
+/* Case facts (purchase origin, Taiwan acceptance) and case conversation panel */
+.case-facts { padding: 0; }
+.chat-panel { background: var(--gray-150); padding: 12px 16px; margin: 0 0 12px; max-height: 45dvh; overflow-y: auto; }
+.chat-topics { display: flex; flex-direction: column; gap: 8px; padding: 0 16px; }
+.chat-topics .btn { height: auto; white-space: normal; }

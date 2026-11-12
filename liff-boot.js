@@ -78,7 +78,7 @@ if (typeof document !== 'undefined') (function () {
   function showReady(r) {
     gate.hidden = true;
     gate.dataset.state = 'ready';
-    document.querySelector('.preview-text').textContent = (env === 'developing' ? 'LINE 開發版・' : 'LINE 版・') + '內容與金額皆為示範';
+    document.querySelector('.preview-text').textContent = (env === 'developing' ? 'LINE 開發版・' : 'LINE 版・') + '情境資料・示範金額';
     if (!r.inClient) {
       // External browser: usable as-is (no login); point to LINE without forcing anything.
       const a = h('a', { href: miniAppUrl(env), textContent: '在 LINE 中開啟' });
