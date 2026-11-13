@@ -2,13 +2,19 @@
    index.html never loads this file or the LIFF SDK.
    The page itself declares its stage in <html data-liff-env="...">. The stage is never read from
    the URL, so a query string or a liff.state redirect cannot switch the LIFF ID.
-   Only liff.init() and liff.isInClient() are used: no login call, no profile, no tokens. */
+   SDK use: liff.init(), liff.isInClient(), and for the nickname/avatar card liff.isLoggedIn(),
+   liff.permission.query('profile') and liff.getProfile(). No login call, no tokens, no all-scope consent request.
+   Only displayName and pictureUrl are kept, in page memory only (window.ShareRepairLine): never stored,
+   logged, or sent anywhere. Profile problems never block the app. */
 'use strict';
 
 // Public LIFF IDs (line-channel-settings.md). Review is deliberately absent: not enabled.
 const LIFF_IDS = { published: '2012566276-GSc0s3dD', developing: '2012566272-IizF9Fvz' };
 const SDK_URL = 'https://static.line-scdn.net/liff/edge/2/sdk.js'; // official CDN, edge path for major v2
 const TIMEOUT_MS = 15000;
+const PROFILE_TIMEOUT_MS = 8000; // automatic read after init
+const ASK_TIMEOUT_MS = 60000; // user tapped the button: LINE may be showing its consent screen
+const NAME_MAX = 40;
 
 const liffIdFor = (env) => (Object.prototype.hasOwnProperty.call(LIFF_IDS, env) ? LIFF_IDS[env] : null);
 const miniAppUrl = (env) => 'https://miniapp.line.me/' + liffIdFor(env);
@@ -35,6 +41,41 @@ async function startLiff(env, loadSdk, timeoutMs = TIMEOUT_MS) {
   return { state: 'ready', inClient: liff.isInClient() };
 }
 
+// Avatar URL: absolute https only, no credentials. Anything else falls back to the default avatar.
+function safePicture(u) {
+  if (typeof u !== 'string' || !u) return null;
+  try {
+    const url = new URL(u);
+    return url.protocol === 'https:' && !url.username && !url.password ? url.href : null;
+  } catch (e) { return null; }
+}
+const clampName = (v) => Array.from(typeof v === 'string' ? v.trim() : '').slice(0, NAME_MAX).join('').trim();
+// Keep only the two fields this demo shows; everything else in the SDK response is dropped here.
+function cleanProfile(p) {
+  return { displayName: clampName(p && p.displayName), pictureUrl: safePicture(p && p.pictureUrl) };
+}
+
+// Read nickname + avatar after init. Resolves to { state, profile? }; never rejects.
+// state: 'ready' | 'prompt' (not consented: offer an optional button) | 'unavailable' (no profile scope / no API)
+//      | 'guest' (outside LINE, not logged in) | 'failed' (denied, error or timeout).
+// ask=false: getProfile only when permission.query says granted. ask=true (user tapped): call getProfile and
+// let LINE show its own consent screen if needed. Never logs in and never asks for every channel scope.
+async function readProfile(liff, inClient, { ask = false, timeoutMs = PROFILE_TIMEOUT_MS } = {}) {
+  try {
+    if (!liff || typeof liff.getProfile !== 'function') return { state: 'unavailable' };
+    const loggedIn = inClient || (typeof liff.isLoggedIn === 'function' && liff.isLoggedIn() === true);
+    if (!loggedIn) return { state: 'guest' };
+    if (!ask) {
+      const query = liff.permission && liff.permission.query;
+      if (typeof query !== 'function') return { state: 'prompt' };
+      const st = ((await withTimeout(Promise.resolve(query.call(liff.permission, 'profile')), timeoutMs)) || {}).state;
+      if (st === 'unavailable' || st === 'prompt') return { state: st };
+      if (st !== 'granted') return { state: 'failed' };
+    }
+    return { state: 'ready', profile: cleanProfile(await withTimeout(Promise.resolve(liff.getProfile()), timeoutMs)) };
+  } catch (e) { return { state: 'failed' }; }
+}
+
 const MESSAGES = {
   config: ['入口設定錯誤', '此頁面沒有可用的 LINE 環境設定。'],
   sdk: ['無法載入 LINE 元件', '可能是網路不穩或 LINE 服務暫時無法連線。'],
@@ -42,7 +83,7 @@ const MESSAGES = {
   timeout: ['LINE 連線逾時', '等待 LINE 回應超過 15 秒。'],
 };
 
-if (typeof module !== 'undefined') module.exports = { LIFF_IDS, SDK_URL, liffIdFor, miniAppUrl, startLiff, MESSAGES };
+if (typeof module !== 'undefined') module.exports = { LIFF_IDS, SDK_URL, liffIdFor, miniAppUrl, startLiff, MESSAGES, safePicture, cleanProfile, readProfile };
 
 if (typeof document !== 'undefined') (function () {
   const env = document.documentElement.dataset.liffEnv;
@@ -86,7 +127,27 @@ if (typeof document !== 'undefined') (function () {
       document.querySelector('.preview-notice').after(h('p', { className: 'liff-note', role: 'note' },
         '目前在 LINE 以外的瀏覽器，可直接操作展示內容。', a));
     }
+    shareProfile(r.inClient);
     document.body.append(h('script', { src: 'app.js' }));
+  }
+
+  // Bridge to app.js: current LINE card state in page memory, plus an opt-in request for the button.
+  // The app reads get() at start and listens for 'share-repair-line'. Gone on reload.
+  function shareProfile(inClient) {
+    let cur = { state: 'loading', inClient, profile: null };
+    let busy = false;
+    const set = (r) => {
+      cur = Object.freeze({ state: r.state, inClient, profile: r.profile ? Object.freeze({ ...r.profile }) : null });
+      document.dispatchEvent(new Event('share-repair-line'));
+    };
+    const run = (ask) => {
+      if (busy) return;
+      busy = true;
+      set({ state: 'loading' });
+      readProfile(window.liff, inClient, ask ? { ask, timeoutMs: ASK_TIMEOUT_MS } : undefined).then((r) => { busy = false; set(r); });
+    };
+    window.ShareRepairLine = Object.freeze({ get: () => cur, request: () => { if (cur.state === 'prompt') run(true); } });
+    run(false);
   }
 
   startLiff(env, loadSdk).then((r) => (r.state === 'ready' ? showReady(r) : showError(r)));

@@ -126,6 +126,14 @@ b { font-weight: 600; }
 .brand-mark { width: 24px; height: 24px; flex: none; }
 .home-title { font-size: 24px; font-weight: 700; line-height: 1.35; }
 .home-desc { margin-top: 4px; font-size: 15px; color: var(--gray-650); }
+.line-card { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin: 14px 0 8px; padding: 10px 12px; background: var(--white); border-radius: var(--r-card); box-shadow: var(--shadow-gray-100); min-width: 0; }
+.line-card:focus { outline: 2px solid var(--black); outline-offset: 2px; }
+.line-card .row-main { flex: 1 1 9em; min-width: 0; }
+.line-card .line-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.line-card .btn { flex: none; width: auto; margin-left: auto; }
+.avatar { width: 40px; height: 40px; flex: none; border-radius: 50%; object-fit: cover; background: var(--gray-200); }
+.avatar-default { display: grid; place-items: center; color: var(--gray-650); }
+.avatar-default .ic { width: 24px; height: 24px; }
 
 /* ---------- Blocks & lists ---------- */
 .block {

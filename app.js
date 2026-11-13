@@ -1,5 +1,6 @@
 /* Share Repair customer UI, v1 (static preview).
-   In-memory only: no network, no storage, no LIFF SDK yet.
+   In-memory only: no network calls, no storage. On LINE pages liff-boot.js loads the SDK first and may hand over
+   the user's nickname + avatar (window.ShareRepairLine); they are shown and prefilled here, never stored or sent.
    The pure core (top half) is DOM-free so selftest.js can run it in Node. */
 'use strict';
 
@@ -126,8 +127,12 @@ function createState() {
   return {
     view: 'home', caseId: null, cases: seedCases(), triage: freshTriage(),
     lookup: { brand: 'A', model: '', region: 'abroad', result: null }, consentChecked: false, open: {}, seq: 104, chats: {},
+    booking: { name: '', edited: false }, // 預約稱呼: prefilled from the LINE nickname until the user edits it
   };
 }
+
+// Booking name: a display name for this request only (not a legal name, not a verified member). Text, never HTML.
+const bookerName = (v) => Array.from(typeof v === 'string' ? v.trim() : '').slice(0, 40).join('').trim();
 
 const todos = (s) => s.cases.filter((c) => STATUS[c.status].todo);
 const findCase = (s, id) => s.cases.find((c) => c.id === id);
@@ -186,7 +191,7 @@ function submitHandoff(s) {
   const id = 'SR-D' + s.seq++;
   const danger = s.triage.issue === 'danger';
   s.cases.unshift({
-    id, product: '無線耳機（日本購入）', ill: 'buds', origin: '日本購入', local: '待確認',
+    id, booker: bookerName(s.booking && s.booking.name), product: '無線耳機（日本購入）', ill: 'buds', origin: '日本購入', local: '待確認',
     route: 'tbd', warranty: 'pending', status: 'reviewing', stage: 1, quoteReady: false, quoteConsented: false, tracking: null,
     lines: [line('service', '平台服務費', null), line('repair', '維修費', null), line('shipping', '運費', null), EXCEPTION_LINE],
     events: [['剛剛', '您', danger ? '回報安全疑慮，申請專人評估' : '申請專人處理'],
@@ -294,7 +299,7 @@ const money = (n) => 'NT$ ' + n.toLocaleString('en-US');
 if (typeof module !== 'undefined') {
   module.exports = { createState, payerOf, quoteDueFromBuyer, quotedSubtotal, quoteComplete, todos, consentQuote, markShipped, submitDocs,
     simulateWarrantyResult, submitHandoff, chooseIssue, contactTopics, askContact, startChat, replyTriage, lookupPoints, STAGES, SCRIPTS, findCase,
-    STATUS, PAYER, VIEW_META, TABS, tabOf, resolveView, SAMPLE_PRICE_NOTE };
+    STATUS, PAYER, VIEW_META, TABS, tabOf, resolveView, SAMPLE_PRICE_NOTE, bookerName };
 }
 
 /* ================= UI ================= */
@@ -438,7 +443,8 @@ if (typeof document !== 'undefined') (function () {
       h('header', { class: 'home-head' },
         h('p', { class: 'brand' }, svg('ill-mark', 'brand-mark'), h('span', {}, '售後共享車 Share Repair')),
         h('h1', { class: 'home-title', tabindex: '-1' }, '產品售後服務'),
-        h('p', { class: 'home-desc' }, '海外購入商品的維修查詢、問題排查與跨境送修')),
+        h('p', { class: 'home-desc' }, '海外購入商品的維修查詢、問題排查與跨境送修'),
+        lineCard()),
       h('section', { class: 'block block-cta' },
         btn([svg('i-spark'), '開始問題排查'], () => go('triage', { triage: freshTriage() }), 'btn btn-primary', 'start-triage'),
         h('p', { class: 'caption' }, '問題排查與保固確認免費；保固外的費用會先報價，經您同意才處理。')),
@@ -621,6 +627,7 @@ if (typeof document !== 'undefined') (function () {
       S.triage.issue === 'danger' ? h('p', { class: 'note note-warn' }, svg('i-alert'), '您回報了安全疑慮：專人會先評估能否安全運送，確認前不安排寄件。') : null,
       h('section', { class: 'block' }, h('h2', { class: 'list-header' }, '服務內容'),
         h('ul', { class: 'ticks' }, ['平台窗口整理排查紀錄與照片', '聯繫商家或原廠進行遠端判讀', '確認保固狀態與後續處理方式'].map((x) => h('li', {}, svg('i-check'), x)))),
+      bookingSection(already),
       h('section', { class: 'block' },
         h('h2', { class: 'list-header' }, '費用說明'),
         h('div', { class: 'fees' },
@@ -641,8 +648,78 @@ if (typeof document !== 'undefined') (function () {
         h('h2', {}, '申請已建立'),
         h('p', {}, '案件 ' + id + ' 已加入維修案件。目前保固待認定，確認前不需寄件或付款。'),
         h('p', { class: 'caption' }, '平台窗口會依排查紀錄處理，進度可在案件中查看。')),
+      bookingSummary(findCase(S, id)),
       h('div', { class: 'actions' }, btn('查看案件', () => openCase(id), 'btn btn-primary', 'open-new-case'), btn('回到首頁', backTo('home'), 'btn btn-ghost', 'home'))];
   }
+
+  /* ---------- LINE nickname + avatar (from liff-boot.js, page memory only) ---------- */
+  const lineInfo = () => (window.ShareRepairLine ? window.ShareRepairLine.get() : null); // null: web page without LINE
+  const lineNick = () => { const L = lineInfo(); return L && L.state === 'ready' ? L.profile.displayName : ''; };
+
+  // Default avatar for missing, unsafe or broken pictures. The URL was checked (https only) in liff-boot.js and
+  // is only ever set as an <img> src attribute; one error swaps in the default, so it cannot loop.
+  function avatar(pic) {
+    const fallback = () => h('span', { class: 'avatar avatar-default' }, svg('i-user'));
+    if (!pic) return fallback();
+    const img = h('img', { class: 'avatar', src: pic, alt: '', width: '40', height: '40', referrerpolicy: 'no-referrer', decoding: 'async' });
+    img.addEventListener('error', () => img.replaceWith(fallback()), { once: true });
+    return img;
+  }
+
+  function lineCard() {
+    const L = lineInfo();
+    const p = L && L.state === 'ready' ? L.profile : null;
+    const sub = p ? 'LINE 暱稱・僅用於本次畫面'
+      : !L ? '網頁版・申請時可自行填寫稱呼'
+        : L.state === 'loading' ? '正在讀取 LINE 暱稱'
+          : L.state === 'prompt' ? '可選擇使用 LINE 暱稱與頭像'
+            : L.state === 'guest' ? '未登入 LINE，可直接操作'
+              : '未取得 LINE 暱稱，申請時可自行填寫';
+    return h('div', { class: 'line-card', 'data-line-card': true, tabindex: '-1' }, avatar(p && p.pictureUrl),
+      h('span', { class: 'row-main' }, h('span', { class: 'row-title line-name' }, p ? p.displayName || '未設定暱稱' : '訪客'), h('span', { class: 'row-sub' }, sub)),
+      L && L.state === 'prompt' ? btn('使用 LINE 暱稱', () => window.ShareRepairLine.request(), 'btn btn-outline btn-sm', 'use-line-profile') : null);
+  }
+
+  // 服務預約: one editable name for this request. Prefilled with the LINE nickname until the user types.
+  function bookingSection(already) {
+    const B = S.booking;
+    if (!B.edited) B.name = lineNick();
+    const input = h('input', { id: 'f-booker', class: 'field', type: 'text', maxlength: '40', autocomplete: 'nickname', 'aria-describedby': 'f-booker-help f-booker-src', disabled: !!already, 'data-act': 'booker' });
+    input.value = B.name;
+    const src = h('p', { class: 'help', id: 'f-booker-src', hidden: B.edited || !B.name }, '已帶入您的 LINE 暱稱，可修改。');
+    input.addEventListener('input', () => { B.name = input.value; B.edited = true; src.hidden = true; });
+    return h('section', { class: 'block', 'aria-labelledby': 'book-h' },
+      h('h2', { class: 'list-header', id: 'book-h' }, '服務預約'),
+      h('div', { class: 'block-body' },
+        h('p', { class: 'caption' }, '預約項目：專人遠端判讀與保固確認。不代表已安排維修時段。'),
+        h('label', { for: 'f-booker', class: 'label' }, '預約稱呼'), input,
+        h('p', { class: 'help', id: 'f-booker-help' }, '選填。用於本次申請的稱呼，不需填寫正式姓名。'), src));
+  }
+
+  function bookingSummary(c) {
+    if (!c) return null;
+    const item = (k, v) => h('div', { class: 'kv' }, h('dt', {}, k), h('dd', {}, v));
+    return h('section', { class: 'block', 'aria-labelledby': 'book-sum-h' },
+      h('h2', { class: 'list-header', id: 'book-sum-h' }, '預約摘要'),
+      h('dl', { class: 'kvs' }, item('案件編號', c.id), item('預約項目', '專人遠端判讀與保固確認'), item('預約稱呼', c.booker || '未填寫')));
+  }
+
+  // Profile arrived or changed (possibly late): update the card and an untouched name field in place,
+  // so focus, scroll and anything the user typed are kept.
+  document.addEventListener('share-repair-line', () => {
+    const nick = lineNick();
+    const input = document.getElementById('f-booker');
+    if (!S.booking.edited && !(input && input.disabled)) {
+      S.booking.name = nick;
+      if (input) { input.value = nick; document.getElementById('f-booker-src').hidden = !nick; }
+    }
+    document.querySelectorAll('[data-line-card]').forEach((old) => {
+      const hadFocus = old.contains(document.activeElement);
+      const card = lineCard();
+      old.replaceWith(card);
+      if (hadFocus) (card.querySelector('button') || card).focus();
+    });
+  });
 
   function viewCases() {
     return [h('header', { class: 'page-head' }, h('h1', { class: 'page-title', tabindex: '-1' }, VIEW_META.cases.title),
@@ -714,7 +791,8 @@ if (typeof document !== 'undefined') (function () {
             h('span', { class: 'tags' }, warrantyTag(c), routeTag(c)))),
         h('dl', { class: 'kvs case-facts' },
           h('div', { class: 'kv' }, h('dt', {}, '購買地'), h('dd', {}, c.origin)),
-          h('div', { class: 'kv' }, h('dt', {}, '台灣受理'), h('dd', {}, c.local))),
+          h('div', { class: 'kv' }, h('dt', {}, '台灣受理'), h('dd', {}, c.local)),
+          c.booker ? h('div', { class: 'kv' }, h('dt', {}, '預約稱呼'), h('dd', {}, c.booker)) : null),
         h('p', { class: 'status-next' }, '下一步：' + st.next),
         action ? h('div', { class: 'status-action' }, action) : null,
         c.tracking ? h('p', { class: 'note' }, svg('i-truck'), '追蹤號 ' + c.tracking) : null),
@@ -837,7 +915,7 @@ if (typeof document !== 'undefined') (function () {
           h('p', { class: 'caption' }, '保固內消費者不需付費。保固待認定時先免費確認，不視為保固外。保固外服務費定價、收費時點與退款規則尚未訂定。'))),
       h('section', { class: 'block' }, h('h2', { class: 'list-header' }, '關於展示版本'),
         h('div', { class: 'block-body' },
-          h('p', { class: 'caption' }, '目前為互動情境展示。商品、案件、據點、排查步驟與窗口回覆都是情境資料，參考公開社群討論中常見的海外購入維修困擾，不指涉特定品牌，也不代表任何品牌已合作或拒修。金額皆為示範金額，非正式報價。所有操作只在您的畫面中進行，不會產生付款、寄件、通知或訂單，也不讀取 LINE 個人資料。重新整理頁面會回到初始展示資料。'),
+          h('p', { class: 'caption' }, '目前為互動情境展示。商品、案件、據點、排查步驟與窗口回覆都是情境資料，參考公開社群討論中常見的海外購入維修困擾，不指涉特定品牌，也不代表任何品牌已合作或拒修。金額皆為示範金額，非正式報價。所有操作只在您的畫面中進行，不會產生付款、寄件、通知或訂單。在 LINE 中經您授權後，會讀取 LINE 暱稱與頭像，僅用於本次畫面顯示與預約稱呼預填，不儲存，也不傳送到伺服器。重新整理頁面會回到初始展示資料。'),
           btn('展示工具', openSheet, 'btn btn-outline btn-sm', 'tools-about'),
           h('a', { class: 'btn btn-ghost btn-sm', href: 'start.html', 'data-act': 'start-guide' }, '開始操作指引與 QR Code')))];
   }
