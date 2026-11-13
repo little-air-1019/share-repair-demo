@@ -18,9 +18,10 @@ const NAME_MAX = 40;
 
 const liffIdFor = (env) => (Object.prototype.hasOwnProperty.call(LIFF_IDS, env) ? LIFF_IDS[env] : null);
 const miniAppUrl = (env) => 'https://miniapp.line.me/' + liffIdFor(env);
-// app.js URL with the page's release (cache busting, see stamp-release.js). The release comes only from the page's
-// own <meta name="share-repair-release">, never from the URL; anything but 10 hex chars is ignored.
-const appSrc = (release) => (/^[0-9a-f]{10}$/.test(release || '') ? 'app.js?v=' + release : 'app.js');
+// App script URLs, in load order, with the page's release (cache busting, see stamp-release.js). The release comes only
+// from the page's own <meta name="share-repair-release">, never from the URL; anything but 10 hex chars is ignored.
+const APP_SCRIPTS = ['merchant.js', 'app.js'];
+const appSrcs = (release) => APP_SCRIPTS.map((f) => (/^[0-9a-f]{10}$/.test(release || '') ? f + '?v=' + release : f));
 
 function withTimeout(promise, ms) {
   let t;
@@ -86,7 +87,7 @@ const MESSAGES = {
   timeout: ['LINE 連線逾時', '等待 LINE 回應超過 15 秒。'],
 };
 
-if (typeof module !== 'undefined') module.exports = { LIFF_IDS, SDK_URL, liffIdFor, miniAppUrl, appSrc, startLiff, MESSAGES, safePicture, cleanProfile, readProfile };
+if (typeof module !== 'undefined') module.exports = { LIFF_IDS, SDK_URL, liffIdFor, miniAppUrl, appSrcs, startLiff, MESSAGES, safePicture, cleanProfile, readProfile };
 
 if (typeof document !== 'undefined') (function () {
   const env = document.documentElement.dataset.liffEnv;
@@ -132,7 +133,8 @@ if (typeof document !== 'undefined') (function () {
     }
     shareProfile(r.inClient);
     const meta = document.querySelector('meta[name="share-repair-release"]');
-    document.body.append(h('script', { src: appSrc(meta && meta.content) }));
+    // Dynamic scripts default to async; async=false keeps merchant.js before app.js.
+    for (const src of appSrcs(meta && meta.content)) document.body.append(h('script', { src, async: false }));
   }
 
   // Bridge to app.js: current LINE card state in page memory, plus an opt-in request for the button.

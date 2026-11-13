@@ -6,6 +6,9 @@
 
 /* ================= Pure core ================= */
 
+// Merchant side (merchant.js, loaded first in the browser). Shares this state; see merchant.js.
+const M = typeof window !== 'undefined' && window.ShareRepairMerchant ? window.ShareRepairMerchant : require('./merchant.js');
+
 const SAMPLE_PRICE_NOTE = '示範金額，非正式報價';
 
 const STAGES = {
@@ -34,6 +37,9 @@ const STATUS = {
   awaitWarranty: { label: '保固認定中', tone: 'wait', todo: false, next: '商家認定期間不需寄件或先行付款' },
   reviewing: { label: '專人處理中', tone: 'wait', todo: false, next: '平台窗口確認後將通知您' },
   inTransit: { label: '運送中', tone: 'ok', todo: false, next: '各段交接由合作方回報後更新' },
+  arranging: { label: '安排處理中', tone: 'wait', todo: false, next: '商家安排處理方式與報價；完整報價前不需寄件或付款' },
+  atRepair: { label: '維修處理中', tone: 'ok', todo: false, next: '商品已送達維修單位，檢測與維修進度會在此更新' },
+  returning: { label: '寄回中', tone: 'ok', todo: false, next: '維修完成，商品寄回中' },
 };
 
 const WARRANTY = { in: '保固內', out: '保固外', pending: '保固待認定' };
@@ -53,10 +59,21 @@ const VIEW_META = {
   quote: { title: '確認報價', parent: 'case' },
   ship: { title: '寄件方式', parent: 'case' },
   docs: { title: '補充資料', parent: 'case' },
+  // Role entry (2026-11-13): demo identity choice before the buyer app. Merchant pages are placeholders only.
+  role: { title: '選擇使用身分', parent: null },
+  merchant: { title: '選擇商家角色', parent: 'role' },
+  ...M.VIEW_META, // brand (b*) and repair team (r*) workbench screens
 };
 const TABS = ['home', 'cases', 'about'];
-// Which bottom tab is highlighted for a view: walk up parents to a root.
+const ROLE_VIEWS = ['role', 'merchant', ...Object.keys(M.VIEW_META)];
+// Demo identities. Not login or authorisation: a LINE login proves neither employment nor repair certification.
+const MERCHANT_ROLES = {
+  brand: { label: '品牌／原廠', sub: '商品與手冊建檔、遠端判讀、保固認定與維修核准', home: 'bHome' },
+  repair: { label: '在地認證維修團隊', sub: '接單、檢測與報價、維修進度與交接', home: 'rHome' },
+};
+// Which bottom tab is highlighted for a view: walk up parents to a root. Role screens have no buyer tab.
 function tabOf(view) {
+  if (ROLE_VIEWS.includes(view)) return null;
   let v = view;
   for (let i = 0; i < 10 && VIEW_META[v] && VIEW_META[v].parent; i++) v = VIEW_META[v].parent;
   return TABS.includes(v) ? v : 'home';
@@ -82,6 +99,7 @@ function quoteDueFromBuyer(c) { return quoteComplete(c) ? quotedSubtotal(c) : nu
 
 function line(key, label, amount) { return { key, label, amount }; }
 const EXCEPTION_LINE = line('exception', '檢測、清關、保險、退回等例外費用', null);
+M.bind({ quoteComplete, line, EXCEPTION_LINE });
 
 // Scenario cases (pitch): overseas-bought products Taiwan service may not accept. Categories only, no real brands.
 // SR-D101 assumes a partner-brand arrangement for local repair; it does not claim any real brand cooperates.
@@ -125,7 +143,7 @@ function freshTriage() { return { step: 'product', issue: null, photo: false, id
 
 function createState() {
   return {
-    view: 'home', caseId: null, cases: seedCases(), triage: freshTriage(),
+    view: 'role', role: null, merchantRole: null, caseId: null, cases: seedCases().map(M.caseExtras), triage: freshTriage(), m: M.seed(),
     lookup: { brand: 'A', model: '', region: 'abroad', result: null }, consentChecked: false, open: {}, seq: 104, chats: {},
     booking: { name: '', edited: false }, // 預約稱呼: prefilled from the LINE nickname until the user edits it
   };
@@ -164,6 +182,7 @@ function submitDocs(s, id) {
   if (!c || c.status !== 'awaitDocs') return false;
   c.status = 'awaitWarranty';
   c.stage = 2;
+  c.proof = true;
   addEvent(c, '您', '提供購買證明（示範圖片）');
   return true;
 }
@@ -180,6 +199,8 @@ function simulateWarrantyResult(s, id) {
   c.status = 'awaitQuote';
   c.stage = 2;
   c.local = '國內無受理據點，需送日本原廠';
+  c.factory = { status: 'approved' }; // same record the brand workbench writes for a factory quote
+  c.decision = { result: 'in', reason: '購買證明日期在保固期內（展示工具推進）' };
   addEvent(c, '商家', '認定為保固內：消費者不需付費，維修費與運費由商家負擔；日本規格機種送日本原廠');
   return true;
 }
@@ -189,14 +210,17 @@ function simulateWarrantyResult(s, id) {
 function submitHandoff(s) {
   if (!s.consentChecked || s.triage.caseId) return null;
   const id = 'SR-D' + s.seq++;
-  const danger = s.triage.issue === 'danger';
-  s.cases.unshift({
+  const t = s.triage;
+  const danger = t.issue === 'danger';
+  s.cases.unshift(M.caseExtras({
     id, booker: bookerName(s.booking && s.booking.name), product: '無線耳機（日本購入）', ill: 'buds', origin: '日本購入', local: '待確認',
     route: 'tbd', warranty: 'pending', status: 'reviewing', stage: 1, quoteReady: false, quoteConsented: false, tracking: null,
     lines: [line('service', '平台服務費', null), line('repair', '維修費', null), line('shipping', '運費', null), EXCEPTION_LINE],
     events: [['剛剛', '您', danger ? '回報安全疑慮，申請專人評估' : '申請專人處理'],
       ['剛剛', '系統', '已附上排查紀錄']],
-  });
+  }));
+  Object.assign(s.cases[0], { danger, info: { issue: (ISSUES.find((x) => x.key === t.issue) || {}).label || '未選擇問題', photo: !!t.photo,
+    steps: t.log.filter((m) => m.from === 'ai').map((m) => m.text) } });
   s.triage.caseId = id;
   return id;
 }
@@ -268,7 +292,7 @@ function contactTopics(c) {
   if (c.status === 'awaitPrice') t.push({ key: 'quote', q: '報價包含哪些項目？', a: '維修費與運費已報價；平台服務費尚未定價。完整報價前不會請您同意，也不會寄件或施工。' });
   if (c.status === 'awaitDocs' || c.status === 'awaitWarranty') t.push({ key: 'docs', q: '購買證明可以用什麼？', a: '收據、電子發票或訂單截圖皆可，需看得到購買日期與店家。保固認定前不需寄件，也不需先行付款。' });
   if (c.route === 'overseas') t.push({ key: 'address', q: '需要自己準備日本的收件地址嗎？', a: '不需要。您只要寄到國內集運點，出口、日本原廠維修與運回台灣由平台與集運商交接，每段都會更新進度。' });
-  if (c.route === 'domestic') t.push({ key: 'ship', q: '寄件時要注意什麼？', a: '請標示案件編號並妥善包裝；保固內運費由商家負擔，不需先行支付。' });
+  if (c.route === 'domestic') t.push({ key: 'ship', q: '寄件時要注意什麼？', a: '請標示案件編號並妥善包裝；' + (c.warranty === 'in' ? '保固內運費由商家負擔，不需先行支付。' : '運費列於報價中，經您同意後才寄件。') });
   return t;
 }
 function askContact(s, id, key) {
@@ -283,6 +307,14 @@ function askContact(s, id, key) {
 // The screen actually allowed for the current state. Guards navigation (incl. browser/native Back)
 // so stale history can't reopen a consent form, a finished quote, or a confirmation without a case.
 function resolveView(s, view) {
+  // Role gate first: buyer screens need the buyer identity, merchant pages the merchant identity (and a sub-role).
+  if (view === 'role') return 'role';
+  if (view === 'merchant' || M.VIEW_META[view]) {
+    if (s.role !== 'merchant') return 'role';
+    if (view === 'merchant') return view;
+    return MERCHANT_ROLES[s.merchantRole] ? M.resolve(s, view) : 'merchant';
+  }
+  if (s.role !== 'buyer') return 'role';
   if (!VIEW_META[view]) return 'home';
   const c = s.caseId ? findCase(s, s.caseId) : null;
   if (['case', 'quote', 'ship', 'docs'].includes(view) && !c) return 'cases';
@@ -294,12 +326,25 @@ function resolveView(s, view) {
   return view;
 }
 
+// Demo identity switch (memory only). Cases, gates and booking are untouched.
+function chooseRole(s, role) {
+  if (role !== 'buyer' && role !== 'merchant') return false;
+  s.role = role;
+  s.merchantRole = null;
+  return true;
+}
+function chooseMerchantRole(s, key) {
+  if (s.role !== 'merchant' || !Object.prototype.hasOwnProperty.call(MERCHANT_ROLES, key)) return false;
+  s.merchantRole = key;
+  return true;
+}
+
 const money = (n) => 'NT$ ' + n.toLocaleString('en-US');
 
 if (typeof module !== 'undefined') {
   module.exports = { createState, payerOf, quoteDueFromBuyer, quotedSubtotal, quoteComplete, todos, consentQuote, markShipped, submitDocs,
     simulateWarrantyResult, submitHandoff, chooseIssue, contactTopics, askContact, startChat, replyTriage, lookupPoints, STAGES, SCRIPTS, findCase,
-    STATUS, PAYER, VIEW_META, TABS, tabOf, resolveView, SAMPLE_PRICE_NOTE, bookerName };
+    STATUS, PAYER, VIEW_META, TABS, tabOf, resolveView, SAMPLE_PRICE_NOTE, bookerName, ROLE_VIEWS, MERCHANT_ROLES, chooseRole, chooseMerchantRole };
 }
 
 /* ================= UI ================= */
@@ -368,8 +413,8 @@ if (typeof document !== 'undefined') (function () {
     backing = false;
     const st = e.state;
     if (!st || st.gen !== gen) { // pre-reset entry: show home, never the old case
-      history.replaceState({ view: 'home', caseId: null, gen, stack: [{ view: 'home', caseId: null }] }, '');
-      go('home', { caseId: null, consentChecked: false }, 'replace');
+      history.replaceState({ view: 'role', caseId: null, gen, stack: [{ view: 'role', caseId: null }] }, '');
+      go('home', { caseId: null, consentChecked: false }, 'replace'); // resolveView keeps a buyer home, else the role choice
       return;
     }
     go(st.view, { caseId: st.caseId, consentChecked: false }, 'replace'); // replace: record any resolveView redirect
@@ -381,7 +426,7 @@ if (typeof document !== 'undefined') (function () {
     Object.assign(S, extra || {});
     const stack = (history.state || {}).stack || [];
     for (let i = stack.length - 2; i >= 0; i--) {
-      if (stack[i].view === parent && (parent !== 'case' || stack[i].caseId === S.caseId)) { backing = true; return history.go(i - (stack.length - 1)); }
+      if (stack[i].view === parent && (!['case', 'bCase', 'rOrder'].includes(parent) || stack[i].caseId === S.caseId)) { backing = true; return history.go(i - (stack.length - 1)); }
     }
     go(parent, null, 'replace');
   }
@@ -391,8 +436,8 @@ if (typeof document !== 'undefined') (function () {
     clearTimeout(timer);
     S = createState();
     gen++;
-    history.replaceState({ view: 'home', caseId: null, gen, stack: [{ view: 'home', caseId: null }] }, '');
-    closeSheet(false);
+    history.replaceState({ view: 'role', caseId: null, gen, stack: [{ view: 'role', caseId: null }] }, '');
+    closeSheet(false); // the LINE card (liff-boot.js memory) is kept: reset never logs out
     render(true);
     snack('已重設為初始展示資料');
   }
@@ -441,7 +486,9 @@ if (typeof document !== 'undefined') (function () {
     const list = todos(S);
     return [
       h('header', { class: 'home-head' },
-        h('p', { class: 'brand' }, svg('ill-mark', 'brand-mark'), h('span', {}, '售後共享車 Share Repair')),
+        h('div', { class: 'brand-row' },
+          h('p', { class: 'brand' }, svg('ill-mark', 'brand-mark'), h('span', {}, '售後共享車 Share Repair')),
+          btn('切換身分', () => go('role'), 'link-btn', 'switch-role')),
         h('h1', { class: 'home-title', tabindex: '-1' }, '產品售後服務'),
         h('p', { class: 'home-desc' }, '海外購入商品的維修查詢、問題排查與跨境送修'),
         lineCard()),
@@ -747,13 +794,15 @@ if (typeof document !== 'undefined') (function () {
     }));
   }
 
-  function timeline(c) {
+  // merchantView: brand / team screens, where the buyer is 買家 rather than 您.
+  function timeline(c, merchantView) {
     const stages = STAGES[c.route];
     const cur = c.stage;
     const key = c.id + ':tl';
     const open = !!S.open[key];
     const visible = open ? stages : stages.slice(0, Math.min(stages.length, cur + 2));
-    const list = h('ol', { class: 'timeline' }, visible.map(([name, who], i) => {
+    const list = h('ol', { class: 'timeline' }, visible.map(([name, who0], i) => {
+      const who = merchantView ? who0.replace('您', '買家') : who0;
       const st = i < cur ? 'done' : i === cur ? 'now' : 'next';
       return h('li', { class: 'tl tl-' + st, 'aria-current': st === 'now' ? 'step' : null },
         h('span', { class: 'tl-dot' }, st === 'done' ? svg('i-check') : null),
@@ -920,15 +969,49 @@ if (typeof document !== 'undefined') (function () {
           h('a', { class: 'btn btn-ghost btn-sm', href: 'start.html', 'data-act': 'start-guide' }, '開始操作指引與 QR Code')))];
   }
 
-  const VIEWS = { home: viewHome, lookup: viewLookup, triage: viewTriage, consent: viewConsent, submitted: viewSubmitted,
+  /* ---------- Role entry: demo identity choice (not login, not authorisation) ---------- */
+  function viewRole() {
+    return [
+      h('header', { class: 'home-head' },
+        h('p', { class: 'brand' }, svg('ill-mark', 'brand-mark'), h('span', {}, '售後共享車 Share Repair')),
+        h('h1', { class: 'home-title', tabindex: '-1' }, VIEW_META.role.title),
+        h('p', { class: 'home-desc' }, '請選擇本次使用的身分'),
+        lineCard()),
+      h('section', { class: 'block', 'aria-label': '身分' },
+        h('ul', { class: 'list' },
+          listRow({ icon: 'i-user', title: '我是買家', sub: '維修據點查詢、問題排查、申請專人處理與追蹤案件', act: 'role-buyer',
+            onclick: () => { chooseRole(S, 'buyer'); go('home'); } }),
+          listRow({ icon: 'i-tools', title: '我是商家', sub: '品牌／原廠、在地認證維修團隊', act: 'role-merchant',
+            onclick: () => { chooseRole(S, 'merchant'); go('merchant'); } }))),
+      h('p', { class: 'intro caption' }, '展示用身分選擇，不是登入或權限驗證。正式服務的商家身分與維修認證由平台另行核驗。'),
+    ];
+  }
+
+  function viewMerchant() {
+    return [subnav(VIEW_META.merchant.title, backTo('role')),
+      h('p', { class: 'intro' }, '請選擇您的商家類型。'),
+      h('section', { class: 'block', 'aria-label': '商家類型' },
+        h('ul', { class: 'list' }, Object.entries(MERCHANT_ROLES).map(([key, r]) => listRow({
+          icon: key === 'brand' ? 'i-shield' : 'i-tools', title: r.label, sub: r.sub, act: 'merchant-' + key,
+          onclick: () => { chooseMerchantRole(S, key); go(r.home); } })))),
+      h('p', { class: 'intro caption' }, '商家工作台為純前端展示：資料只存在本次畫面記憶體，並與買家畫面共用案件；不連接後端，切換身分可接續操作，重新整理或重設會回到初始資料。'),
+      h('div', { class: 'actions' }, btn('切換成買家', () => { chooseRole(S, 'buyer'); go('home'); }, 'btn btn-ghost', 'switch-buyer'))];
+  }
+
+  // Merchant workbench screens (merchant.js) are built from these shared helpers.
+  const merchantViews = M.views({ state: () => S, h, svg, btn, subnav, back, backTo, go, snack, listRow, toggle, feeTable, timeline, statusTag,
+    warrantyTag, routeTag, sampleTag, money, render, STAGES, STATUS, WARRANTY, switchRole: () => go('role') });
+  const VIEWS = { ...merchantViews, role: viewRole, merchant: viewMerchant, home: viewHome, lookup: viewLookup, triage: viewTriage, consent: viewConsent, submitted: viewSubmitted,
     cases: viewCases, case: viewCase, quote: viewQuote, ship: viewShip, docs: viewDocs, about: viewAbout };
 
   function render(navigated) {
     const scrollTop = screen.scrollTop;
     const wrap = h('div', { class: 'view' + (navigated ? ' enter' : '') }, VIEWS[S.view]());
     // The MINI App native header shows <title>, so keep it short and per screen.
-    document.title = S.view === 'home' ? '售後共享車 Share Repair' : VIEW_META[S.view].title + '｜售後共享車';
+    document.title = S.view === 'home' || S.view === 'role' ? '售後共享車 Share Repair' : VIEW_META[S.view].title + '｜售後共享車';
     screen.replaceChildren(wrap);
+    // Role screens: no buyer bottom nav, no buyer to-do badge.
+    document.querySelector('.bnav').hidden = !!ROLE_VIEWS.includes(S.view);
     const tab = tabOf(S.view);
     document.querySelectorAll('.bnav-item').forEach((t) => {
       if (t.dataset.tab === tab) t.setAttribute('aria-current', 'page'); else t.removeAttribute('aria-current');
@@ -955,6 +1038,11 @@ if (typeof document !== 'undefined') (function () {
   function openSheet() {
     sheetReturn = document.activeElement;
     renderAdvance();
+    // Buyer scenarios only for the buyer identity, so the tools never bypass the role choice.
+    const buyer = S.role === 'buyer';
+    sceneList.hidden = !buyer;
+    sceneNote.hidden = buyer;
+    advance.hidden = !buyer; // the merchant's warranty decision shortcut is a buyer-scenario tool
     sheet.hidden = false;
     sheet.querySelector('.sheet-close').focus();
   }
@@ -984,6 +1072,9 @@ if (typeof document !== 'undefined') (function () {
       h('span', { class: 'row-main' }, h('span', { class: 'row-title' }, title), h('span', { class: 'row-sub' }, sub)),
       svg('i-chev', 'ic chev')))));
   document.getElementById('btn-reset').addEventListener('click', reset);
+  const sceneNote = h('p', { class: 'sheet-desc', hidden: true }, '情境切換適用買家身分。請先在「選擇使用身分」選擇「我是買家」。');
+  sceneList.after(sceneNote);
+  document.getElementById('btn-reset').before(btn('切換身分', () => { closeSheet(false); go('role'); }, 'btn btn-outline', 'sheet-switch-role'));
 
   // Operator-only scene advance (not a buyer action): merchant's warranty decision for a case awaiting it.
   const advance = h('div', { class: 'sheet-advance' });
@@ -1016,8 +1107,8 @@ if (typeof document !== 'undefined') (function () {
       h('p', { class: 'sheet-desc', id: 'chat-sub' }, '情境對話・' + c.product + '｜' + c.id),
       h('div', { class: 'chat chat-panel', role: 'log', 'aria-live': 'polite', 'aria-label': '對話紀錄' },
         h('div', { class: 'bubble ai' }, h('span', { class: 'bubble-who' }, '平台窗口'), h('p', {}, '您好，我是此案件的平台窗口。請選擇想詢問的事項。')),
-        log.map((m) => [h('div', { class: 'bubble me' }, h('p', {}, m.q)),
-          h('div', { class: 'bubble ai' }, h('span', { class: 'bubble-who' }, '平台窗口'), h('p', {}, m.a))])),
+        log.map((m) => [m.q ? h('div', { class: 'bubble me' }, h('p', {}, m.q)) : null, // brand messages have no question
+          h('div', { class: 'bubble ai' }, h('span', { class: 'bubble-who' }, m.who || '平台窗口'), h('p', {}, m.a))])),
       h('div', { class: 'chat-topics' }, contactTopics(c).map((t) => btn(t.q, () => { askContact(S, c.id, t.key); renderChat(t.key); },
         'btn btn-outline btn-sm', 'ask-' + t.key, { disabled: asked.has(t.key) }))));
     const logEl = box.querySelector('.chat-panel');
@@ -1050,6 +1141,7 @@ if (typeof document !== 'undefined') (function () {
     if (next) { e.preventDefault(); next.focus(); }
   });
 
-  history.replaceState({ view: 'home', caseId: null, gen, stack: [{ view: 'home', caseId: null }] }, '');
+  // Each load starts at the role choice: the demo identity lives only in this page's memory.
+  history.replaceState({ view: 'role', caseId: null, gen, stack: [{ view: 'role', caseId: null }] }, '');
   render(false);
 })();
