@@ -5,7 +5,6 @@
 
 /* ================= Pure core ================= */
 
-const SERVICE_FEE = 600; // Sample value carried over from the demo; not a decided price.
 const SAMPLE_PRICE_NOTE = '示範金額，非正式報價';
 
 const STAGES = {
@@ -29,6 +28,7 @@ const SHIP_STAGE = { domestic: 3, overseas: 3 };
 const STATUS = {
   awaitShip: { label: '待寄件', tone: 'todo', todo: true, next: '依寄件方式寄出商品' },
   awaitQuote: { label: '待確認報價', tone: 'todo', todo: true, next: '確認費用項目與付款方' },
+  awaitPrice: { label: '待完整報價', tone: 'wait', todo: false, next: '平台服務費尚未定價；完整報價前不寄件、不施工' },
   awaitDocs: { label: '待補充資料', tone: 'todo', todo: true, next: '提供購買證明，以便商家認定保固' },
   awaitWarranty: { label: '保固認定中', tone: 'wait', todo: false, next: '商家認定期間不需寄件或先行付款' },
   reviewing: { label: '專人處理中', tone: 'wait', todo: false, next: '平台窗口確認後將通知您' },
@@ -37,7 +37,7 @@ const STATUS = {
 
 const WARRANTY = { in: '保固內', out: '保固外', pending: '保固待認定' };
 const ROUTE = { domestic: '國內維修', overseas: '原廠海外維修', tbd: '處理方式待確認' };
-const PAYER = { buyer: '消費者負擔', merchant: '商家負擔', pending: '待保固認定', tbd: '待確認' };
+const PAYER = { buyer: '消費者負擔', merchant: '商家負擔', covered: '商家訂閱涵蓋', pending: '待保固認定', tbd: '待確認' };
 
 // Screen titles and the screen a back button returns to. Tab roots have no parent.
 const VIEW_META = {
@@ -46,7 +46,7 @@ const VIEW_META = {
   about: { title: '服務說明', parent: null },
   lookup: { title: '維修據點查詢', parent: 'home' },
   triage: { title: '問題排查', parent: 'home' },
-  consent: { title: '服務內容與費用', parent: 'triage' },
+  consent: { title: '服務申請確認', parent: 'triage' },
   submitted: { title: '申請已送出', parent: 'home' },
   case: { title: '案件詳情', parent: 'cases' },
   quote: { title: '確認報價', parent: 'case' },
@@ -61,20 +61,23 @@ function tabOf(view) {
   return TABS.includes(v) ? v : 'home';
 }
 
-// Who pays a fee line. Service fee: consumer. Exceptions: never auto-assigned.
+// Who pays a fee line (user decision 2026-11-13). In warranty the buyer pays nothing: platform service is covered by
+// the merchant's subscription (no per-order fee), repair and shipping are the merchant's. Out of warranty the buyer
+// pays service, repair and shipping. Pending: nothing owed or committed until the merchant decides. Exceptions: never auto-assigned.
 function payerOf(warranty, key) {
-  if (key === 'service') return 'buyer';
   if (key === 'exception') return 'tbd';
-  if (warranty === 'in') return 'merchant';
+  if (warranty === 'in') return key === 'service' ? 'covered' : 'merchant';
   if (warranty === 'out') return 'buyer';
   return 'pending';
 }
 
-// Amount the consumer is asked to approve in this quote (service fee was approved earlier, separately).
-function quoteDueFromBuyer(c) {
-  return c.lines.reduce((sum, l) =>
-    l.key !== 'service' && l.amount != null && payerOf(c.warranty, l.key) === 'buyer' ? sum + l.amount : sum, 0);
-}
+// Buyer-paid lines (exceptions excluded: quoted separately if they arise). amount null = not priced yet.
+const buyerLines = (c) => c.lines.filter((l) => l.key !== 'exception' && payerOf(c.warranty, l.key) === 'buyer');
+const quotedSubtotal = (c) => buyerLines(c).reduce((sum, l) => sum + (l.amount || 0), 0);
+// A quote is complete once the warranty is decided and every buyer-paid line has a price.
+const quoteComplete = (c) => c.warranty !== 'pending' && buyerLines(c).every((l) => l.amount != null);
+// Buyer's total for this quote; null while incomplete (unknown is never shown as NT$0).
+function quoteDueFromBuyer(c) { return quoteComplete(c) ? quotedSubtotal(c) : null; }
 
 function line(key, label, amount) { return { key, label, amount }; }
 const EXCEPTION_LINE = line('exception', '檢測、清關、保險、退回等例外費用', null);
@@ -86,31 +89,31 @@ function seedCases() {
     {
       id: 'SR-D101', product: '無線耳機（日本購入）', ill: 'buds', origin: '日本購入', local: '合作維修點可處理（合作品牌情境）',
       route: 'domestic', warranty: 'in', status: 'awaitShip', stage: 3, quoteReady: true, quoteConsented: true, tracking: null,
-      lines: [line('service', '平台服務費（專人處理）', SERVICE_FEE), line('repair', '維修費', 1200), line('shipping', '國內來回運費', 300), EXCEPTION_LINE],
+      lines: [line('service', '平台服務費', null), line('repair', '維修費', 1200), line('shipping', '國內來回運費', 300), EXCEPTION_LINE],
       events: [
-        ['11/08 10:12', '您', '排查後左耳仍無聲音，確認服務費，申請專人處理'],
+        ['11/08 10:12', '您', '排查後左耳仍無聲音，申請專人處理'],
         ['11/08 15:40', '平台窗口', '遠端判讀：左耳單元故障，充電與配對正常；國內合作維修點可處理'],
-        ['11/09 09:05', '商家', '確認保固內，維修費與運費由商家負擔'],
-        ['11/09 09:30', '您', '確認寄件前報價'],
+        ['11/09 09:05', '商家', '確認保固內：消費者不需付費，維修費與運費由商家負擔'],
+        ['11/09 09:30', '您', '確認處理方式與寄件方案'],
       ],
     },
     {
       id: 'SR-D102', product: '遊戲主機（日版）', ill: 'console', origin: '日本購入（日版）', local: '國內無受理據點，需送日本原廠',
-      route: 'overseas', warranty: 'out', status: 'awaitQuote', stage: 2, quoteReady: true, quoteConsented: false, tracking: null,
-      lines: [line('service', '平台服務費（專人處理）', SERVICE_FEE), line('repair', '原廠維修費', 3800), line('shipping', '寄送至國內集運點運費', 150),
+      route: 'overseas', warranty: 'out', status: 'awaitPrice', stage: 2, quoteReady: false, quoteConsented: false, tracking: null,
+      lines: [line('service', '平台服務費', null), line('repair', '原廠維修費', 3800), line('shipping', '寄送至國內集運點運費', 150),
         line('intl', '國際來回運輸（集運）', 2400), EXCEPTION_LINE],
       events: [
-        ['11/06 20:18', '您', '主機無法讀取遊戲片，確認服務費，申請專人處理'],
+        ['11/06 20:18', '您', '主機無法讀取遊戲片，申請專人處理'],
         ['11/07 11:02', '原廠技術人員', '影片判讀：讀取模組異常，需由日本原廠維修站處理'],
-        ['11/09 16:45', '平台窗口', '原廠報價已送達；寄件只需寄到國內集運點，不需自備日本收件地址'],
+        ['11/09 16:45', '平台窗口', '原廠維修與運費報價已送達；平台服務費尚未定價'],
       ],
     },
     {
       id: 'SR-D103', product: '吹風機（日本購入）', ill: 'dryer', origin: '日本購入（日本規格）', local: '待商家確認',
       route: 'tbd', warranty: 'pending', status: 'awaitDocs', stage: 1, quoteReady: false, quoteConsented: false, tracking: null,
-      lines: [line('service', '平台服務費（專人處理）', SERVICE_FEE), line('repair', '維修費', null), line('shipping', '運費', null), EXCEPTION_LINE],
+      lines: [line('service', '平台服務費', null), line('repair', '維修費', null), line('shipping', '運費', null), EXCEPTION_LINE],
       events: [
-        ['11/10 13:20', '您', '吹風機運轉中自動斷電，確認服務費，申請專人處理'],
+        ['11/10 13:20', '您', '吹風機運轉中自動斷電，申請專人處理'],
         ['11/10 18:02', '平台窗口', '商家需要購買證明以認定保固；認定前不需寄件或付款'],
       ],
     },
@@ -133,11 +136,11 @@ const addEvent = (c, who, text) => c.events.push(['剛剛', who, text]);
 // Second consent: quote before shipping. Gated by checkbox.
 function consentQuote(s, id, checked) {
   const c = findCase(s, id);
-  if (!c || !checked || c.status !== 'awaitQuote' || c.warranty === 'pending') return false;
+  if (!c || !checked || c.status !== 'awaitQuote' || !quoteComplete(c)) return false;
   c.quoteConsented = true;
   c.status = 'awaitShip';
   c.stage = SHIP_STAGE[c.route];
-  addEvent(c, '您', '確認寄件前報價');
+  addEvent(c, '您', c.warranty === 'in' ? '確認處理方式與寄件方案' : '同意寄件前報價');
   return true;
 }
 
@@ -166,17 +169,18 @@ function simulateWarrantyResult(s, id) {
   if (!c || c.status !== 'awaitWarranty') return false;
   c.warranty = 'in';
   c.route = 'overseas';
-  c.lines = [line('service', '平台服務費（專人處理）', SERVICE_FEE), line('repair', '原廠維修費', 2600), line('shipping', '寄送至國內集運點運費', 150),
+  c.lines = [line('service', '平台服務費', null), line('repair', '原廠維修費', 2600), line('shipping', '寄送至國內集運點運費', 150),
     line('intl', '國際來回運輸（集運）', 2200), EXCEPTION_LINE];
   c.quoteReady = true;
   c.status = 'awaitQuote';
   c.stage = 2;
   c.local = '國內無受理據點，需送日本原廠';
-  addEvent(c, '商家', '認定為保固內，維修費與運費由商家負擔；日本規格機種送日本原廠');
+  addEvent(c, '商家', '認定為保固內：消費者不需付費，維修費與運費由商家負擔；日本規格機種送日本原廠');
   return true;
 }
 
-// First consent: service fee before a human takes the case. Returns new case id, or null.
+// Service request: the buyer acknowledges the scope (warranty check is free; any out-of-warranty cost is quoted
+// and agreed later). Nothing is charged or committed here. Returns new case id, or null.
 function submitHandoff(s) {
   if (!s.consentChecked || s.triage.caseId) return null;
   const id = 'SR-D' + s.seq++;
@@ -184,8 +188,8 @@ function submitHandoff(s) {
   s.cases.unshift({
     id, product: '無線耳機（日本購入）', ill: 'buds', origin: '日本購入', local: '待確認',
     route: 'tbd', warranty: 'pending', status: 'reviewing', stage: 1, quoteReady: false, quoteConsented: false, tracking: null,
-    lines: [line('service', '平台服務費（專人處理）', SERVICE_FEE), line('repair', '維修費', null), line('shipping', '運費', null), EXCEPTION_LINE],
-    events: [['剛剛', '您', danger ? '回報安全疑慮，申請專人評估' : '確認服務費，申請專人處理'],
+    lines: [line('service', '平台服務費', null), line('repair', '維修費', null), line('shipping', '運費', null), EXCEPTION_LINE],
+    events: [['剛剛', '您', danger ? '回報安全疑慮，申請專人評估' : '申請專人處理'],
       ['剛剛', '系統', '已附上排查紀錄']],
   });
   s.triage.caseId = id;
@@ -255,7 +259,8 @@ function lookupPoints(brand, region) {
 /* Case conversation: scripted replies shown in the case panel. In-memory only; no real person or message. */
 function contactTopics(c) {
   const t = [{ key: 'progress', q: '目前處理到哪裡？', a: '目前為「' + STATUS[c.status].label + '」。下一步：' + STATUS[c.status].next + '。' }];
-  if (c.status === 'awaitQuote') t.push({ key: 'quote', q: '報價包含哪些項目？', a: '報價列出維修費、運費與付款方。例外費用發生時會先報價，未經您同意不收取；同意前不會寄件或施工。' });
+  if (c.status === 'awaitQuote') t.push({ key: 'quote', q: '報價包含哪些項目？', a: c.warranty === 'in' ? '保固內您不需付費：平台服務由商家訂閱涵蓋，維修費與運費由商家負擔。超出保固範圍的項目會先由商家認定並另行確認。' : '報價列出服務費、維修費、運費與付款方。例外費用發生時會先報價，未經您同意不收取；同意前不會寄件或施工。' });
+  if (c.status === 'awaitPrice') t.push({ key: 'quote', q: '報價包含哪些項目？', a: '維修費與運費已報價；平台服務費尚未定價。完整報價前不會請您同意，也不會寄件或施工。' });
   if (c.status === 'awaitDocs' || c.status === 'awaitWarranty') t.push({ key: 'docs', q: '購買證明可以用什麼？', a: '收據、電子發票或訂單截圖皆可，需看得到購買日期與店家。保固認定前不需寄件，也不需先行付款。' });
   if (c.route === 'overseas') t.push({ key: 'address', q: '需要自己準備日本的收件地址嗎？', a: '不需要。您只要寄到國內集運點，出口、日本原廠維修與運回台灣由平台與集運商交接，每段都會更新進度。' });
   if (c.route === 'domestic') t.push({ key: 'ship', q: '寄件時要注意什麼？', a: '請標示案件編號並妥善包裝；保固內運費由商家負擔，不需先行支付。' });
@@ -276,7 +281,7 @@ function resolveView(s, view) {
   if (!VIEW_META[view]) return 'home';
   const c = s.caseId ? findCase(s, s.caseId) : null;
   if (['case', 'quote', 'ship', 'docs'].includes(view) && !c) return 'cases';
-  if (view === 'quote' && c.status !== 'awaitQuote') return 'case';
+  if (view === 'quote' && !['awaitQuote', 'awaitPrice'].includes(c.status)) return 'case';
   if (view === 'ship' && !(c.status === 'awaitShip' && c.quoteConsented)) return 'case';
   if (view === 'docs' && c.status !== 'awaitDocs') return 'case';
   if (view === 'submitted' && !s.triage.caseId) return 'home';
@@ -287,7 +292,7 @@ function resolveView(s, view) {
 const money = (n) => 'NT$ ' + n.toLocaleString('en-US');
 
 if (typeof module !== 'undefined') {
-  module.exports = { createState, payerOf, quoteDueFromBuyer, todos, consentQuote, markShipped, submitDocs,
+  module.exports = { createState, payerOf, quoteDueFromBuyer, quotedSubtotal, quoteComplete, todos, consentQuote, markShipped, submitDocs,
     simulateWarrantyResult, submitHandoff, chooseIssue, contactTopics, askContact, startChat, replyTriage, lookupPoints, STAGES, SCRIPTS, findCase,
     STATUS, PAYER, VIEW_META, TABS, tabOf, resolveView, SAMPLE_PRICE_NOTE };
 }
@@ -436,7 +441,7 @@ if (typeof document !== 'undefined') (function () {
         h('p', { class: 'home-desc' }, '海外購入商品的維修查詢、問題排查與跨境送修')),
       h('section', { class: 'block block-cta' },
         btn([svg('i-spark'), '開始問題排查'], () => go('triage', { triage: freshTriage() }), 'btn btn-primary', 'start-triage'),
-        h('p', { class: 'caption' }, '問題排查免費。需要專人處理時，會先說明服務內容與費用。')),
+        h('p', { class: 'caption' }, '問題排查與保固確認免費；保固外的費用會先報價，經您同意才處理。')),
       list.length ? h('section', { class: 'block', 'aria-labelledby': 'todo-h' },
         h('h2', { class: 'list-header', id: 'todo-h' }, '待處理事項', h('span', { class: 'count-badge', 'aria-label': list.length + ' 件' }, String(list.length))),
         h('ul', { class: 'list' }, list.map((c) => listRow({
@@ -577,7 +582,7 @@ if (typeof document !== 'undefined') (function () {
             h('li', {}, '將商品放在遠離可燃物的不燃表面，例如磁磚地面。'), h('li', {}, '如持續冒煙或起火，請撥打 119。')),
           h('p', { class: 'free' }, svg('i-shield'), '安全提示不收取費用。')),
         h('p', { class: 'intro' }, '如需後續處理，專人會先評估能否安全運送；評估完成前不會安排寄件。'),
-        actions(btn('查看服務內容與費用', () => go('consent', { consentChecked: false }), 'btn btn-outline', 'to-consent'),
+        actions(btn('確認申請內容', () => go('consent', { consentChecked: false }), 'btn btn-outline', 'to-consent'),
           btn('回到首頁', backTo('home'), 'btn btn-ghost', 'home'))];
     }
     // handoff
@@ -585,7 +590,7 @@ if (typeof document !== 'undefined') (function () {
       h('section', { class: 'block' },
         h('h2', { class: 'list-header' }, '建議由專人處理'),
         h('p', { class: 'block-body' }, '手冊建議的步驟已完成。專人會依排查紀錄聯繫原廠並安排後續處理，不需重新說明問題。')),
-      actions(btn('查看服務內容與費用', () => go('consent', { consentChecked: false }), 'btn btn-primary', 'to-consent'),
+      actions(btn('確認申請內容', () => go('consent', { consentChecked: false }), 'btn btn-primary', 'to-consent'),
         btn('暫不需要', backTo('home'), 'btn btn-ghost', 'home'))];
   }
 
@@ -617,18 +622,14 @@ if (typeof document !== 'undefined') (function () {
       h('section', { class: 'block' }, h('h2', { class: 'list-header' }, '服務內容'),
         h('ul', { class: 'ticks' }, ['平台窗口整理排查紀錄與照片', '聯繫商家或原廠進行遠端判讀', '確認保固狀態與後續處理方式'].map((x) => h('li', {}, svg('i-check'), x)))),
       h('section', { class: 'block' },
-        h('div', { class: 'list-header-row' }, h('h2', { class: 'list-header' }, '本階段費用'), sampleTag()),
+        h('h2', { class: 'list-header' }, '費用說明'),
         h('div', { class: 'fees' },
-          feeRow('平台服務費', '專人處理本階段的費用', money(SERVICE_FEE), PAYER.buyer, 'buyer'),
-          feeRow('維修費、物流費', '判讀後另行報價；寄件前會再次請您確認', '另行報價'),
+          feeRow('保固確認與專人判讀', '認定前不收費，也不需承諾付費或先行墊款', '免費'),
+          feeRow('保固內處理', '平台服務由商家訂閱涵蓋；維修費與運費由商家負擔', '不需付費'),
+          feeRow('保固外處理', '服務費、維修費與運費由消費者負擔；先報價，經您同意才寄件或施工', '另行報價'),
           feeRow('例外費用', '檢測、清關、保險、退回等，不會自動由您負擔', '另行報價'))),
-      h('section', { class: 'block' }, h('h2', { class: 'list-header' }, '維修費與運費的負擔方式'),
-        h('dl', { class: 'rules' },
-          h('dt', {}, '保固內'), h('dd', {}, '消費者負擔服務費；維修費與運費由商家負擔。'),
-          h('dt', {}, '保固外'), h('dd', {}, '消費者負擔服務費、維修費與運費，確認報價後才寄件。'),
-          h('dt', {}, '保固待認定'), h('dd', {}, '不視為保固外；認定前不寄件，也不需先行付款。'))),
       h('section', { class: 'block' }, toggle('refund', '取消與退款規則', h('p', { class: 'block-body caption' }, '正式規則尚未訂定。展示版本不會收款，也不會建立實際訂單。'), 'refund')),
-      h('div', { class: 'agree' }, box, h('label', { for: 'agree' }, '我已了解本階段的服務內容與費用；維修費與物流費將另行報價。')),
+      h('div', { class: 'agree' }, box, h('label', { for: 'agree' }, '我已了解：保固認定前不收費；若認定為保固外，費用會先報價，經我同意才寄件或施工。')),
       already ? h('p', { class: 'note' }, '本次排查已送出申請（' + already + '），不會重複建立。') : null,
       h('div', { class: 'actions sticky' }, submit)];
   }
@@ -661,8 +662,11 @@ if (typeof document !== 'undefined') (function () {
   function feeTable(c) {
     return h('div', { class: 'fees' }, c.lines.map((l) => {
       const p = payerOf(c.warranty, l.key);
-      const note = l.key === 'service' ? '申請專人處理時已確認' : l.key === 'exception' ? '發生時先報價，未經同意不收取' : null;
-      return feeRow(l.label, note, l.amount != null ? money(l.amount) : p === 'pending' ? '待認定' : '另行報價', PAYER[p], p);
+      const note = l.key === 'exception' ? '發生時先報價，未經同意不收取'
+        : l.key !== 'service' ? null
+          : p === 'covered' ? '保固內不另收單筆費用' : p === 'pending' ? '保固認定前不收費' : l.amount == null ? '定價尚未確定' : null;
+      const value = l.amount != null ? money(l.amount) : p === 'covered' ? '不另收費' : p === 'pending' ? '待認定' : p === 'tbd' ? '另行報價' : '待報價';
+      return feeRow(l.label, note, value, PAYER[p], p);
     }));
   }
 
@@ -698,6 +702,7 @@ if (typeof document !== 'undefined') (function () {
     let action = null;
     if (c.status === 'awaitShip') action = btn('查看寄件方式', () => go('ship'), 'btn btn-primary', 'go-ship');
     if (c.status === 'awaitQuote') action = btn('確認報價', () => go('quote'), 'btn btn-primary', 'go-quote');
+    if (c.status === 'awaitPrice') action = btn('查看目前報價', () => go('quote'), 'btn btn-outline', 'go-quote');
     if (c.status === 'awaitDocs') action = btn('補充購買證明', () => go('docs'), 'btn btn-primary', 'go-docs');
 
     return [subnav(VIEW_META.case.title, backTo('cases')),
@@ -720,8 +725,8 @@ if (typeof document !== 'undefined') (function () {
 
       h('section', { class: 'block' },
         h('div', { class: 'list-header-row' }, h('h2', { class: 'list-header' }, '費用與付款方'), sampleTag()),
-        h('p', { class: 'block-body caption' }, c.warranty === 'in' ? '保固內：消費者負擔服務費；維修費與運費由商家負擔。'
-          : c.warranty === 'out' ? '保固外：服務費、維修費與運費由消費者負擔，逐項確認。'
+        h('p', { class: 'block-body caption' }, c.warranty === 'in' ? '保固內：消費者不需付費。平台服務由商家訂閱涵蓋，維修費與運費由商家負擔。'
+          : c.warranty === 'out' ? '保固外：服務費、維修費與運費由消費者負擔；完整報價經您同意後才寄件或施工。'
             : '保固待認定：不視為保固外；認定前不寄件，也不需先行付款。'),
         toggle(c.id + ':fees', '費用明細', feeTable(c), 'fees')),
 
@@ -740,24 +745,31 @@ if (typeof document !== 'undefined') (function () {
 
   function viewQuote() {
     const c = findCase(S, S.caseId);
-    if (!c || c.status !== 'awaitQuote') return viewCase();
+    if (!c || !['awaitQuote', 'awaitPrice'].includes(c.status)) return viewCase();
+    const free = c.warranty === 'in';
+    const complete = c.status === 'awaitQuote' && quoteComplete(c);
     const due = quoteDueFromBuyer(c);
-    const box = h('input', { type: 'checkbox', id: 'agree-q', 'data-act': 'agree-quote' });
-    const ok = btn('同意報價', () => {
-      if (consentQuote(S, c.id, box.checked)) { back('case'); snack('已確認報價，可查看寄件方式'); }
+    const box = h('input', { type: 'checkbox', id: 'agree-q', 'data-act': 'agree-quote', disabled: !complete });
+    const ok = btn(free ? '確認寄件方案' : '同意報價', () => {
+      if (consentQuote(S, c.id, box.checked)) { back('case'); snack(free ? '已確認寄件方案，可查看寄件方式' : '已同意報價，可查看寄件方式'); }
     }, 'btn btn-primary', 'consent-quote', { disabled: true });
     box.addEventListener('change', () => { ok.disabled = !box.checked; });
+    const total = complete
+      ? h('div', { class: 'due' }, h('span', {}, '消費者應付'), h('b', { 'data-act': 'quote-total' }, money(due)))
+      : [h('div', { class: 'due' }, h('span', {}, '已報價項目小計'), h('b', { 'data-act': 'quote-subtotal' }, money(quotedSubtotal(c)))),
+        h('div', { class: 'due due-pending' }, h('span', {}, '完整總額'), h('b', { 'data-act': 'quote-total' }, '待報價'))];
     return [subnav(VIEW_META.quote.title, backTo('case')),
       h('p', { class: 'intro' }, c.product + '｜' + c.id + '・' + WARRANTY[c.warranty] + '・' + ROUTE[c.route]),
       h('section', { class: 'block' },
-        h('div', { class: 'list-header-row' }, h('h2', { class: 'list-header' }, '寄件前報價'), sampleTag()),
-        feeTable(c),
-        h('div', { class: 'due' }, h('span', {}, '本次報價消費者負擔'), h('b', {}, money(due))),
-        h('p', { class: 'block-body caption' }, due === 0 ? '保固內：維修費與運費由商家負擔，請確認處理方式。' : '服務費已於申請專人處理時確認，不含在本次報價。')),
+        h('div', { class: 'list-header-row' }, h('h2', { class: 'list-header' }, free ? '處理方式與費用' : '寄件前報價'), sampleTag()),
+        feeTable(c), total,
+        h('p', { class: 'block-body caption' }, free ? '保固內：平台服務由商家訂閱涵蓋，維修費與運費由商家負擔。超出保固範圍的項目，由商家認定並另行請您確認。'
+          : complete ? '保固外：以上費用由消費者負擔。' : '平台服務費尚未定價，報價尚未完整。完整報價前不會請您同意，也不會寄件或施工。')),
       c.route === 'overseas' ? h('p', { class: 'note' }, svg('i-globe'), '路線：寄送至國內集運點 → 出口至原廠維修 → 以集運方式運回台灣。不需自備海外收件地址；預估時間待合作方回報。') : null,
-      h('div', { class: 'agree' }, box, h('label', { for: 'agree-q' }, '我已確認報價項目、金額與付款方；同意前不會寄件或施工。')),
+      h('div', { class: 'agree' + (complete ? '' : ' agree-off') }, box, h('label', { for: 'agree-q' },
+        free ? '我已確認處理方式與寄件方案；保固內不需付費。' : complete ? '我已確認報價項目、金額與付款方；同意前不會寄件或施工。' : '報價完整後才能同意。')),
       h('div', { class: 'actions sticky' }, ok,
-        btn('暫不同意，先聯絡窗口', (e) => openChat(c.id, e.currentTarget), 'btn btn-ghost', 'quote-later'))];
+        btn(complete ? '暫不同意，先聯絡窗口' : '詢問窗口', (e) => openChat(c.id, e.currentTarget), 'btn btn-ghost', 'quote-later'))];
   }
 
   const PACKING = {
@@ -812,17 +824,17 @@ if (typeof document !== 'undefined') (function () {
         h('ol', { class: 'tiers' },
           h('li', {}, h('span', { class: 'row-title' }, '維修據點查詢（免費）'), h('p', { class: 'caption' }, '查詢台灣是否有可處理的維修據點或代理商。')),
           h('li', {}, h('span', { class: 'row-title' }, '問題排查（免費）'), h('p', { class: 'caption' }, '依商家授權的使用手冊逐步排查，簡單問題可直接排除。')),
-          h('li', {}, h('span', { class: 'row-title' }, '專人處理（付費）'), h('p', { class: 'caption' }, '專人聯繫原廠並安排維修與物流；開始前先說明費用。')))),
+          h('li', {}, h('span', { class: 'row-title' }, '專人處理'), h('p', { class: 'caption' }, '專人聯繫原廠並安排維修與物流。保固內消費者不需付費；保固外先報價，經您同意才處理。')))),
       h('section', { class: 'block' }, h('h2', { class: 'list-header' }, '費用負擔方式'),
         h('div', { class: 'block-body' },
           h('table', { class: 'grid' },
             h('thead', {}, h('tr', {}, h('th', { scope: 'col' }, '費用項目'), h('th', { scope: 'col' }, '保固內'), h('th', { scope: 'col' }, '保固外'))),
             h('tbody', {},
-              h('tr', {}, h('th', { scope: 'row' }, '服務費'), h('td', {}, '消費者'), h('td', {}, '消費者')),
+              h('tr', {}, h('th', { scope: 'row' }, '服務費'), h('td', {}, '不另收（商家訂閱涵蓋）'), h('td', {}, '消費者（定價未定）')),
               h('tr', {}, h('th', { scope: 'row' }, '維修費'), h('td', {}, '商家'), h('td', {}, '消費者')),
               h('tr', {}, h('th', { scope: 'row' }, '運費'), h('td', {}, '商家'), h('td', {}, '消費者')),
               h('tr', {}, h('th', { scope: 'row' }, '例外費用'), h('td', { colspan: '2' }, '另行報價，不自動由消費者負擔')))),
-          h('p', { class: 'caption' }, '保固待認定時不視為保固外。金額、收費時點與退款規則尚未訂定。'))),
+          h('p', { class: 'caption' }, '保固內消費者不需付費。保固待認定時先免費確認，不視為保固外。保固外服務費定價、收費時點與退款規則尚未訂定。'))),
       h('section', { class: 'block' }, h('h2', { class: 'list-header' }, '關於展示版本'),
         h('div', { class: 'block-body' },
           h('p', { class: 'caption' }, '目前為互動情境展示。商品、案件、據點、排查步驟與窗口回覆都是情境資料，參考公開社群討論中常見的海外購入維修困擾，不指涉特定品牌，也不代表任何品牌已合作或拒修。金額皆為示範金額，非正式報價。所有操作只在您的畫面中進行，不會產生付款、寄件、通知或訂單，也不讀取 LINE 個人資料。重新整理頁面會回到初始展示資料。'),
@@ -882,7 +894,7 @@ if (typeof document !== 'undefined') (function () {
     ['維修據點查詢', '商品類別／購買地區', () => go('lookup')],
     ['問題排查後排除', '日本購入耳機，排查後已解決', () => go('triage', { triage: freshTriage() })],
     ['安全疑慮', '充電盒發燙，立即停止使用', () => { const t = freshTriage(); chooseIssue({ triage: t }, 'danger'); go('triage', { triage: t }); }],
-    ['轉專人前確認費用', '服務費與維修物流費分開', () => { const t = freshTriage(); t.issue = 'oneside'; t.step = 'handoff'; go('triage', { triage: t }); }],
+    ['轉專人申請', '保固確認免費，保固外先報價', () => { const t = freshTriage(); t.issue = 'oneside'; t.step = 'handoff'; go('triage', { triage: t }); }],
     ['保固內・國內維修', 'SR-D101 耳機寄件方式', () => openCase('SR-D101')],
     ['保固外・日本原廠維修', 'SR-D102 日版主機確認報價', () => openCase('SR-D102')],
     ['待補充資料・保固待認定', 'SR-D103 吹風機補充購買證明', () => openCase('SR-D103')],
@@ -905,7 +917,7 @@ if (typeof document !== 'undefined') (function () {
         simulateWarrantyResult(S, c.id);
         closeSheet(false);
         openCase(c.id);
-        snack('商家已認定保固內，請確認寄件前報價');
+        snack('商家已認定保固內，請確認寄件方案');
       }, 'btn btn-outline', 'sim-warranty'))] : []));
   }
 
