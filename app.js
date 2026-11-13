@@ -183,7 +183,7 @@ function submitDocs(s, id) {
   c.status = 'awaitWarranty';
   c.stage = 2;
   c.proof = true;
-  addEvent(c, '您', '提供購買證明（示範圖片）');
+  addEvent(c, '您', '提供購買證明');
   return true;
 }
 
@@ -278,9 +278,9 @@ const BRANDS = { A: '無線耳機', B: '遊戲主機', C: '吹風機' };
 function lookupPoints(brand, region) {
   const overseasNote = region === 'abroad' ? '海外購買的商品，是否受理須由店家確認。' : null;
   const points = {
-    A: [{ name: '示範代理商服務窗口', scope: '耳機類（以店家公告為準）', abroad: '海外購買品：資料待店家確認', checked: '資料查核日：示範資料' }],
+    A: [{ name: '代理商服務窗口', scope: '耳機類（以店家公告為準）', abroad: '海外購買品：資料待店家確認' }],
     B: [],
-    C: [{ name: '示範家電維修點・北區', scope: '吹風機等美容家電（以店家公告為準）', abroad: '海外購買品：不同電壓規格可能無法受理，請先洽詢', checked: '資料查核日：示範資料' }],
+    C: [{ name: '家電維修點・北區', scope: '吹風機等美容家電（以店家公告為準）', abroad: '海外購買品：不同電壓規格可能無法受理，請先洽詢' }],
   }[brand] || [];
   return { points, overseasNote };
 }
@@ -549,12 +549,11 @@ if (typeof document !== 'undefined') (function () {
       result = h('section', { class: 'block', id: 'lookup-result', tabindex: '-1', 'aria-live': 'polite', 'aria-labelledby': 'res-h' },
         h('h2', { class: 'list-header', id: 'res-h' }, '查詢結果'),
         h('div', { class: 'block-body' },
-          h('p', { class: 'caption' }, '以下為虛構的示範資料。'),
           L.model ? h('p', { class: 'caption' }, '輸入型號：', h('b', {}, L.model)) : null,
           overseasNote ? h('p', { class: 'note note-warn' }, svg('i-alert'), overseasNote) : null),
         points.length ? h('ul', { class: 'list points' }, points.map((p, i) => h('li', { class: 'point' },
           h('p', { class: 'point-name' }, svg('i-pin'), p.name),
-          h('p', {}, '可處理：' + p.scope), h('p', {}, p.abroad), h('p', { class: 'caption' }, p.checked),
+          h('p', {}, '可處理：' + p.scope), h('p', {}, p.abroad),
           btn('洽詢此據點', () => snack('洽詢時請說明購買地區與型號，並確認海外購買品是否受理'), 'btn btn-outline btn-sm', 'point-ask-' + i))))
           : h('div', { class: 'block-body empty' }, h('p', { class: 'row-title' }, '查無台灣據點資料'), h('p', { class: 'caption' }, '可先進行問題排查，或由專人確認是否需送原廠處理。')),
         h('div', { class: 'block-body' },
@@ -915,8 +914,8 @@ if (typeof document !== 'undefined') (function () {
       h('section', { class: 'block' },
         h('div', { class: 'list-header-row' }, h('h2', { class: 'list-header' }, overseas ? '國內集運點' : '合作維修點'), sampleTag('展示收件資訊，請勿寄送實物')),
         h('dl', { class: 'kvs' },
-          item('收件單位', overseas ? '示範集運點' : '示範合作維修點・北區'),
-          item('地址', '○○市○○區示範路 1 號'),
+          item('收件單位', overseas ? '國內集運點' : '合作維修點・北區'),
+          item('地址', '○○市○○區○○路 1 號'),
           item('案件編號', c.id + '（請標示於外箱）'),
           item('寄件方式', '自行至超商或宅配寄件，取得追蹤號後於此登記'))),
       h('section', { class: 'block' }, h('h2', { class: 'list-header' }, '包裝與配件'),
@@ -983,7 +982,6 @@ if (typeof document !== 'undefined') (function () {
             onclick: () => { chooseRole(S, 'buyer'); go('home'); } }),
           listRow({ icon: 'i-tools', title: '我是商家', sub: '品牌／原廠、在地認證維修團隊', act: 'role-merchant',
             onclick: () => { chooseRole(S, 'merchant'); go('merchant'); } }))),
-      h('p', { class: 'intro caption' }, '展示用身分選擇，不是登入或權限驗證。正式服務的商家身分與維修認證由平台另行核驗。'),
     ];
   }
 
@@ -994,7 +992,6 @@ if (typeof document !== 'undefined') (function () {
         h('ul', { class: 'list' }, Object.entries(MERCHANT_ROLES).map(([key, r]) => listRow({
           icon: key === 'brand' ? 'i-shield' : 'i-tools', title: r.label, sub: r.sub, act: 'merchant-' + key,
           onclick: () => { chooseMerchantRole(S, key); go(r.home); } })))),
-      h('p', { class: 'intro caption' }, '商家工作台為純前端展示：資料只存在本次畫面記憶體，並與買家畫面共用案件；不連接後端，切換身分可接續操作，重新整理或重設會回到初始資料。'),
       h('div', { class: 'actions' }, btn('切換成買家', () => { chooseRole(S, 'buyer'); go('home'); }, 'btn btn-ghost', 'switch-buyer'))];
   }
 

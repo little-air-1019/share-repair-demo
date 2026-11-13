@@ -7,7 +7,7 @@
 
   /* ================= Pure core ================= */
 
-  const BRAND = { id: 'aster', name: '星澄電子（虛構品牌）' };
+  const BRAND = { id: 'aster', name: '星澄電子' };
   const TEAM = 'north'; // default repair point; the repair hub lets the user pick any point listed in the certificates
   const CATS = ['耳機', '吹風機', '遊戲主機'];
   const LICENSE = ['已授權', '待確認授權'];
@@ -28,8 +28,8 @@
         { id: 'm3', product: 'p2', title: 'HD-J2 常見問題', kind: 'FAQ', version: '0.9', lang: '日文', region: '日本', license: '待確認授權', file: null },
       ],
       certs: [
-        { team: 'north', name: '示範合作維修點・北區', cats: ['耳機'], models: 'SE-B 系列', region: '台北市、新北市', until: '2027-06-30', scope: '檢測、單元與電池更換', active: true },
-        { team: 'home', name: '示範家電維修點・北區', cats: ['吹風機'], models: 'HD 系列', region: '台北市', until: '2027-03-31', scope: '檢測、電熱與開關零件更換', active: true },
+        { team: 'north', name: '合作維修點・北區', cats: ['耳機'], models: 'SE-B 系列', region: '台北市、新北市', until: '2027-06-30', scope: '檢測、單元與電池更換', active: true },
+        { team: 'home', name: '家電維修點・北區', cats: ['吹風機'], models: 'HD 系列', region: '台北市', until: '2027-03-31', scope: '檢測、電熱與開關零件更換', active: true },
       ],
       knowledge: [],
     };
@@ -41,7 +41,7 @@
     const ex = {
       'SR-D101': { brand: 'aster', cat: '耳機', info: { issue: '左耳沒有聲音', photo: true, steps: ['重新充電', '重設配對與聲道'] },
         wo: { team: 'north', status: 'approved', quote: { remote: '遠端評估：左耳單元故障，建議更換單元', labor: 900, parts: 300, shipping: 300, days: 5 }, supplements: [] },
-        mlog: [['11/08 16:20', '原廠', '認定保固內，分派示範合作維修點・北區'], ['11/09 08:40', '維修點', '遠端估價：工資 900、零件 300、來回運費 300'], ['11/09 09:05', '原廠', '核准維修報價']] },
+        mlog: [['11/08 16:20', '原廠', '認定保固內，分派合作維修點・北區'], ['11/09 08:40', '維修點', '遠端估價：工資 900、零件 300、來回運費 300'], ['11/09 09:05', '原廠', '核准維修報價']] },
       'SR-D102': { brand: 'other', cat: '遊戲主機', info: { issue: '無法讀取遊戲片', photo: true, steps: [] }, wo: null, mlog: [] },
       'SR-D103': { brand: 'aster', cat: '吹風機', info: { issue: '運轉中自動斷電', photo: false, steps: [] }, wo: null, mlog: [] },
     }[c.id];
@@ -292,7 +292,7 @@
       case 'complete':
         if (!why) return false;
         c.wo.report = { text: why, photo: !!p.photo };
-        note(c, '維修點', '完修：' + why + (p.photo ? '（附示範照片）' : ''));
+        note(c, '維修點', '完修：' + why + (p.photo ? '（附照片）' : ''));
         buyerEvent(c, '在地維修團隊', '維修完成，準備寄回');
         break;
       case 'ship':
@@ -622,7 +622,7 @@
     }
     const certState = (x) => (!x.active ? '已停用' : x.until < today() ? '已過期' : '有效');
     function bCerts() {
-      return [subnav(VIEW_META.bCerts.title, backTo('bHome')), h('p', { class: 'intro' }, '虛構的合作維修點，不代表任何真實店家已取得認證。'),
+      return [subnav(VIEW_META.bCerts.title, backTo('bHome')),
         ...S().m.certs.map((x) => h('section', { class: 'block' }, h('div', { class: 'list-header-row' }, h('h2', { class: 'list-header' }, x.name), h('span', { class: 'tag ' + (certState(x) === '有效' ? 'tag-ok' : 'tag-pending') }, certState(x))),
           h('dl', { class: 'kvs' }, kv('品類', x.cats.join('、') || '—'), kv('型號', x.models || '—'), kv('地區', x.region || '—'), kv('期限', x.until), kv('範圍', x.scope || '—')),
           h('div', { class: 'block-body' }, btn('調整認證範圍', () => { S().editCert = x.team; go('bCert'); }, 'btn btn-outline btn-sm', 'bcert-' + x.team))))];
